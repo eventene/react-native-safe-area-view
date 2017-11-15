@@ -208,7 +208,7 @@ class SafeView extends Component {
       }
       case 'vertical':
       case 'top': {
-        return statusBarHeight(isLandscape);
+        return isIPhoneX ? statusBarHeight(isLandscape) : 0;
       }
       case 'bottom': {
         return isIPhoneX ? (isLandscape ? 24 : 34) : 0;
