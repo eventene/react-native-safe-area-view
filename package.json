@@ -1,8 +1,12 @@
 {
   "name": "react-native-safe-area-view",
-  "version": "0.1.0",
+  "version": "0.13.1",
   "description": "JS only version of SafeAreaView for supporting iPhone X safe area insets.",
-  "main": "index.js",
+  "main": "index",
+  "repository": {
+    "url": "git@github.com:react-community/react-native-safe-area-view.git",
+    "type": "git"
+  },
   "scripts": {
     "test": "test"
   },
@@ -11,11 +15,17 @@
     "iPhoneX",
     "SafeAreaView"
   ],
-  "author": "Dave Pack (dave@expo.io)",
+  "author": "Dave Pack (dpack3.0@gmail.com)",
   "license": "MIT",
   "dependencies": {
-    "hoist-non-react-statics": "^2.3.1",
-    "react": "16.0.0-alpha.12",
-    "react-native": "^0.48.4"
+    "hoist-non-react-statics": "^2.3.1"
+  },
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  },
+  "devDependencies": {
+    "react": "16.2.0",
+    "react-native": "^0.52.0"
   }
 }

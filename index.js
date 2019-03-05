@@ -1,21 +1,27 @@
 import React, { Component } from 'react';
 import {
-  DeviceInfo,
   Dimensions,
   InteractionManager,
   NativeModules,
   Platform,
-  SafeAreaView,
-  View,
+  StyleSheet,
+  Animated,
 } from 'react-native';
+import hoistStatics from 'hoist-non-react-statics';
+
 import withOrientation from './withOrientation';
 
-const { isIPhoneX_deprecated } = DeviceInfo;
 // See https://mydevice.io/devices/ for device dimensions
 const X_WIDTH = 375;
 const X_HEIGHT = 812;
+const XSMAX_WIDTH = 414;
+const XSMAX_HEIGHT = 896;
 const PAD_WIDTH = 768;
 const PAD_HEIGHT = 1024;
+const IPADPRO11_WIDTH = 834;
+const IPADPRO11_HEIGHT = 1194;
+const IPADPRO129_HEIGHT = 1024;
+const IPADPRO129_WIDTH = 1366;
 
 const { height: D_HEIGHT, width: D_WIDTH } = Dimensions.get('window');
 
@@ -23,14 +29,25 @@ const { PlatformConstants = {} } = NativeModules;
 const { minor = 0 } = PlatformConstants.reactNativeVersion || {};
 
 const isIPhoneX = (() => {
-  if (minor >= 50) {
-    return isIPhoneX_deprecated;
-  }
+  if (Platform.OS === 'web') return false;
 
   return (
-    Platform.OS === 'ios' &&
-    ((D_HEIGHT === X_HEIGHT && D_WIDTH === X_WIDTH) ||
-      (D_HEIGHT === X_WIDTH && D_WIDTH === X_HEIGHT))
+    (Platform.OS === 'ios' &&
+      ((D_HEIGHT === X_HEIGHT && D_WIDTH === X_WIDTH) ||
+        (D_HEIGHT === X_WIDTH && D_WIDTH === X_HEIGHT))) ||
+    ((D_HEIGHT === XSMAX_HEIGHT && D_WIDTH === XSMAX_WIDTH) ||
+      (D_HEIGHT === XSMAX_WIDTH && D_WIDTH === XSMAX_HEIGHT))
+  );
+})();
+
+const isNewIPadPro = (() => {
+  if (Platform.OS !== 'ios') return false;
+
+  return (
+    (D_HEIGHT === IPADPRO11_HEIGHT && D_WIDTH === IPADPRO11_WIDTH) ||
+    (D_HEIGHT === IPADPRO11_WIDTH && D_WIDTH === IPADPRO11_HEIGHT) ||
+    ((D_HEIGHT === IPADPRO129_HEIGHT && D_WIDTH === IPADPRO129_WIDTH) ||
+      (D_HEIGHT === IPADPRO129_WIDTH && D_WIDTH === IPADPRO129_HEIGHT))
   );
 })();
 
@@ -50,9 +67,32 @@ const isIPad = (() => {
   return true;
 })();
 
+let _customStatusBarHeight = null;
 const statusBarHeight = isLandscape => {
+  if (_customStatusBarHeight !== null) {
+    return _customStatusBarHeight;
+  }
+
+  /**
+   * This is a temporary workaround because we don't have a way to detect
+   * if the status bar is translucent or opaque. If opaque, we don't need to
+   * factor in the height here; if translucent (content renders under it) then
+   * we do.
+   */
+  if (Platform.OS === 'android') {
+    if (global.Expo) {
+      return global.Expo.Constants.statusBarHeight;
+    } else {
+      return 0;
+    }
+  }
+
   if (isIPhoneX) {
     return isLandscape ? 0 : 44;
+  }
+
+  if (isNewIPadPro) {
+    return 24;
   }
 
   if (isIPad) {
@@ -62,19 +102,42 @@ const statusBarHeight = isLandscape => {
   return isLandscape ? 0 : 20;
 };
 
+const doubleFromPercentString = percent => {
+  if (!percent.includes('%')) {
+    return 0;
+  }
+
+  const dbl = parseFloat(percent) / 100;
+
+  if (isNaN(dbl)) return 0;
+
+  return dbl;
+};
+
 class SafeView extends Component {
+  static setStatusBarHeight = height => {
+    _customStatusBarHeight = height;
+  };
+
   state = {
     touchesTop: true,
     touchesBottom: true,
     touchesLeft: true,
     touchesRight: true,
     orientation: null,
+    viewWidth: 0,
+    viewHeight: 0,
   };
 
   componentDidMount() {
+    this._isMounted = true;
     InteractionManager.runAfterInteractions(() => {
       this._onLayout();
     });
+  }
+
+  componentWillUnmount() {
+    this._isMounted = false;
   }
 
   componentWillReceiveProps() {
@@ -82,30 +145,23 @@ class SafeView extends Component {
   }
 
   render() {
-    const { forceInset = false, isLandscape, children, style } = this.props;
-
-    if (Platform.OS !== 'ios') {
-      return <View style={style}>{this.props.children}</View>;
-    }
-
-    if (!forceInset && minor >= 50) {
-      return <SafeAreaView style={style}>{this.props.children}</SafeAreaView>;
-    }
+    const { forceInset = false, isLandscape, style, ...props } = this.props;
 
     const safeAreaStyle = this._getSafeAreaStyle();
 
     return (
-      <View
+      <Animated.View
         ref={c => (this.view = c)}
+        pointerEvents="box-none"
+        {...props}
         onLayout={this._onLayout}
-        style={[style, safeAreaStyle]}
-      >
-        {this.props.children}
-      </View>
+        style={safeAreaStyle}
+      />
     );
   }
 
-  _onLayout = () => {
+  _onLayout = (...args) => {
+    if (!this._isMounted) return;
     if (!this.view) return;
 
     const { isLandscape } = this.props;
@@ -115,23 +171,26 @@ class SafeView extends Component {
       return;
     }
 
-    const WIDTH = isLandscape ? X_HEIGHT : X_WIDTH;
-    const HEIGHT = isLandscape ? X_WIDTH : X_HEIGHT;
+    const WIDTH = Dimensions.get('window').width;
+    const HEIGHT = Dimensions.get('window').height;
 
-    this.view.measureInWindow((winX, winY, winWidth, winHeight) => {
+    this.view._component.measureInWindow((winX, winY, winWidth, winHeight) => {
+      if (!this.view) {
+        return;
+      }
       let realY = winY;
       let realX = winX;
 
       if (realY >= HEIGHT) {
         realY = realY % HEIGHT;
       } else if (realY < 0) {
-        realY = realY % HEIGHT + HEIGHT;
+        realY = (realY % HEIGHT) + HEIGHT;
       }
 
       if (realX >= WIDTH) {
         realX = realX % WIDTH;
       } else if (realX < 0) {
-        realX = realX % WIDTH + WIDTH;
+        realX = (realX % WIDTH) + WIDTH;
       }
 
       const touchesTop = realY === 0;
@@ -145,7 +204,11 @@ class SafeView extends Component {
         touchesLeft,
         touchesRight,
         orientation: newOrientation,
+        viewWidth: winWidth,
+        viewHeight: winHeight,
       });
+
+      if (this.props.onLayout) this.props.onLayout(...args);
     });
   };
 
@@ -153,7 +216,16 @@ class SafeView extends Component {
     const { touchesTop, touchesBottom, touchesLeft, touchesRight } = this.state;
     const { forceInset, isLandscape } = this.props;
 
+    const {
+      paddingTop,
+      paddingBottom,
+      paddingLeft,
+      paddingRight,
+      viewStyle,
+    } = this._getViewStyles();
+
     const style = {
+      ...viewStyle,
       paddingTop: touchesTop ? this._getInset('top') : 0,
       paddingBottom: touchesBottom ? this._getInset('bottom') : 0,
       paddingLeft: touchesLeft ? this._getInset('left') : 0,
@@ -195,7 +267,62 @@ class SafeView extends Component {
       });
     }
 
+    // new height/width should only include padding from insets
+    // height/width should not be affected by padding from style obj
+    if (style.height && typeof style.height === 'number') {
+      style.height += style.paddingTop + style.paddingBottom;
+    }
+
+    if (style.width && typeof style.width === 'number') {
+      style.width += style.paddingLeft + style.paddingRight;
+    }
+
+    style.paddingTop = Math.max(style.paddingTop, paddingTop);
+    style.paddingBottom = Math.max(style.paddingBottom, paddingBottom);
+    style.paddingLeft = Math.max(style.paddingLeft, paddingLeft);
+    style.paddingRight = Math.max(style.paddingRight, paddingRight);
+
     return style;
+  };
+
+  _getViewStyles = () => {
+    const { viewWidth } = this.state;
+    // get padding values from style to add back in after insets are determined
+    // default precedence: padding[Side] -> vertical | horizontal -> padding -> 0
+    let {
+      padding = 0,
+      paddingVertical = padding,
+      paddingHorizontal = padding,
+      paddingTop = paddingVertical,
+      paddingBottom = paddingVertical,
+      paddingLeft = paddingHorizontal,
+      paddingRight = paddingHorizontal,
+      ...viewStyle
+    } = StyleSheet.flatten(this.props.style || {});
+
+    if (typeof paddingTop !== 'number') {
+      paddingTop = doubleFromPercentString(paddingTop) * viewWidth;
+    }
+
+    if (typeof paddingBottom !== 'number') {
+      paddingBottom = doubleFromPercentString(paddingBottom) * viewWidth;
+    }
+
+    if (typeof paddingLeft !== 'number') {
+      paddingLeft = doubleFromPercentString(paddingLeft) * viewWidth;
+    }
+
+    if (typeof paddingRight !== 'number') {
+      paddingRight = doubleFromPercentString(paddingRight) * viewWidth;
+    }
+
+    return {
+      paddingTop,
+      paddingBottom,
+      paddingLeft,
+      paddingRight,
+      viewStyle,
+    };
   };
 
   _getInset = key => {
@@ -211,10 +338,38 @@ class SafeView extends Component {
         return isIPhoneX ? statusBarHeight(isLandscape) : 0;
       }
       case 'bottom': {
-        return isIPhoneX ? (isLandscape ? 24 : 34) : 0;
+        if (isIPhoneX) {
+          return isLandscape ? 24 : 34;
+        }
+
+        if (isNewIPadPro) {
+          return 20;
+        }
+
+        return 0;
       }
     }
   };
 }
 
-export default withOrientation(SafeView);
+const SafeAreaView = withOrientation(SafeView);
+
+export default SafeAreaView;
+
+const withSafeArea = function(forceInset = {}) {
+  return WrappedComponent => {
+    class withSafeArea extends Component {
+      render() {
+        return (
+          <SafeAreaView style={{ flex: 1 }} forceInset={forceInset}>
+            <WrappedComponent {...this.props} />
+          </SafeAreaView>
+        );
+      }
+    }
+
+    return hoistStatics(withSafeArea, WrappedComponent);
+  };
+};
+
+export { withSafeArea };
